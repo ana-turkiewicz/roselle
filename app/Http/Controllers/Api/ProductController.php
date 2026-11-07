@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ProductRequest;
+use App\Http\Resources\ProductResource;
 use App\Models\Product;
 use Illuminate\Http\Request;
 
@@ -29,8 +30,9 @@ class ProductController extends Controller
         }
 
         $product = Product::create($data);
+        $response = new ProductResource($product->load('category'));
 
-        return response()->json($product, 201);
+        return response()->json($response, 201);
     }
 
     /**

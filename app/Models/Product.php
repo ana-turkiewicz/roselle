@@ -16,10 +16,16 @@ class Product extends Model
         'stock',
         'image',
         'is_active',
+        'category_id',
     ];
 
     protected $casts = [
         'price'     => 'decimal:2',
         'is_active' => 'boolean',
     ];
+
+    public function category() //função de resource
+    {
+        return $this->belongsTo(Category::class);
+    }
 }

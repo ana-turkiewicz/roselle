@@ -29,6 +29,7 @@ class ProductRequest extends FormRequest
             'stock' => ['required', 'integer', 'min:0'],
             'image' => ['nullable', 'image', 'max:2048'],
             'is_active' => ['boolean'],
+            'category_id' => ['required', 'exists:categories,id'],
         ];
     }
 }
