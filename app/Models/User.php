@@ -25,6 +25,7 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable(['name', 'email', 'password'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
+
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -41,5 +42,16 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+    ];
+
+    public function addresses()
+    {
+        return $this->HasMany(Address::class);
     }
 }
