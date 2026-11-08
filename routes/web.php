@@ -4,6 +4,8 @@ use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\ProductPageController;
 use App\Http\Controllers\CategoryPageController;
+use App\Http\Controllers\AddressPageController;
+use App\Http\Controllers\UserPageController;
 
 
 Route::inertia('/', 'Welcome')->name('home');
@@ -14,6 +16,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 Route::get('/products', [ProductPageController::class, 'index'])->name('products.index');
 Route::get('/categories', [CategoryPageController::class, 'index'])->name('categories.index');
+Route::get('/addresses', [AddressPageController::class, 'index'])->name('addresses.index');
+Route::get('/users', [UserPageController::class, 'index'])->name('users.index');
+
+
 
 require __DIR__.'/settings.php';
 
