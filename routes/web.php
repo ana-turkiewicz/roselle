@@ -8,6 +8,10 @@ use App\Http\Controllers\AddressPageController;
 use App\Http\Controllers\UserPageController;
 use App\Http\Controllers\CartPageController;
 use App\Http\Controllers\CartItemPageController;
+use App\Http\Controllers\OrderPageController;
+use App\Http\Controllers\OrderItemPageController;
+
+
 
 Route::inertia('/', 'Welcome')->name('home');
 
@@ -21,6 +25,10 @@ Route::get('/addresses', [AddressPageController::class, 'index'])->name('address
 Route::get('/users', [UserPageController::class, 'index'])->name('users.index');
 Route::get('/carts', [CartPageController::class, 'index'])->name('carts.index');
 Route::get('/cartItems', [CartItemPageController::class, 'index'])->name('cartItems.index');
+Route::get('/orders', [OrderPageController::class, 'index'])->name('orders.index');
+Route::get('/orderItems', [OrderItemPageController::class, 'index'])->name('orderItems.index');
+
+
 
 require __DIR__.'/settings.php';
 
