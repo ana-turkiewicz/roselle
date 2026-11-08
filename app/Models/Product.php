@@ -24,7 +24,7 @@ class Product extends Model
         'is_active' => 'boolean',
     ];
 
-    public function category() //função de resource
+    public function category()
     {
         return $this->belongsTo(Category::class);
     }
