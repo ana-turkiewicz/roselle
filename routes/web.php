@@ -10,8 +10,7 @@ use App\Http\Controllers\CartPageController;
 use App\Http\Controllers\CartItemPageController;
 use App\Http\Controllers\OrderPageController;
 use App\Http\Controllers\OrderItemPageController;
-
-
+use App\Http\Controllers\PaymentPageController;
 
 Route::inertia('/', 'Welcome')->name('home');
 
@@ -27,8 +26,7 @@ Route::get('/carts', [CartPageController::class, 'index'])->name('carts.index');
 Route::get('/cartItems', [CartItemPageController::class, 'index'])->name('cartItems.index');
 Route::get('/orders', [OrderPageController::class, 'index'])->name('orders.index');
 Route::get('/orderItems', [OrderItemPageController::class, 'index'])->name('orderItems.index');
-
-
+Route::get('/payments', [PaymentPageController::class, 'index'])->name('payments.index');
 
 require __DIR__.'/settings.php';
 
