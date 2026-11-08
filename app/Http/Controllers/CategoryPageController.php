@@ -15,4 +15,23 @@ class CategoryPageController extends Controller
             )
         ]);
     }
+
+    public function show(Category $category)
+    {
+        return inertia('Categories/Show', [
+            'id' => $category->id
+        ]);
+    }
+
+    public function create()
+    {
+        return inertia('Categories/Create');
+    }
+
+    public function edit(Category $category)
+    {
+        return inertia('Categories/Edit', [
+            'id' => $category->id
+        ]);
+    }
 }

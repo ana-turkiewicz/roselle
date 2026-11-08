@@ -24,6 +24,10 @@ Route::get('/products/{product}', [ProductPageController::class, 'show']);
 Route::get('/products/{product}/edit', [ProductPageController::class, 'edit']);
 
 Route::get('/categories', [CategoryPageController::class, 'index'])->name('categories.index');
+Route::get('/categories/create', [CategoryPageController::class, 'create']);
+Route::get('/categories/{category}', [CategoryPageController::class, 'show']);
+Route::get('/categories/{category}/edit', [CategoryPageController::class, 'edit']);
+
 Route::get('/addresses', [AddressPageController::class, 'index'])->name('addresses.index');
 Route::get('/users', [UserPageController::class, 'index'])->name('users.index');
 Route::get('/carts', [CartPageController::class, 'index'])->name('carts.index');
