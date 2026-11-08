@@ -18,7 +18,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'Dashboard')->name('dashboard');
 });
 
-Route::get('/products', [ProductPageController::class, 'index'])->name('products.index');
+Route::get('/products', [ProductPageController::class, 'index']);
+Route::get('/products/create', [ProductPageController::class, 'create']);
+Route::get('/products/{product}', [ProductPageController::class, 'show']);
+Route::get('/products/{product}/edit', [ProductPageController::class, 'edit']);
+
 Route::get('/categories', [CategoryPageController::class, 'index'])->name('categories.index');
 Route::get('/addresses', [AddressPageController::class, 'index'])->name('addresses.index');
 Route::get('/users', [UserPageController::class, 'index'])->name('users.index');

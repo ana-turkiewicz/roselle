@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ProductRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
-use Illuminate\Http\Request;
 use App\Http\Requests\ProductUpdateRequest;
 
 class ProductController extends Controller
@@ -29,8 +28,8 @@ class ProductController extends Controller
     {
         $data = $request->validated();
 
-        if ($request->hasFile('image')){
-            $data['image'] = $request->file('image')->store('products');
+        if ($request->hasFile('image')) {
+            $data['image'] = $request->file('image')->store('products', 'public');
         }
 
         $product = Product::create($data);
@@ -44,9 +43,9 @@ class ProductController extends Controller
      */
     public function show(Product $product)
     {
-        $response = $product->load('category');
+        $response = new ProductResource($product->load('category'));
 
-        return $response;
+        return response()->json($response, 200);
     }
 
     /**
@@ -56,6 +55,10 @@ class ProductController extends Controller
     {
 
         $data = $request->validated();
+
+        if ($request->hasFile('image')) {
+            $data['image'] = $request->file('image')->store('products', 'public');
+        }
 
         $product->update($data);
 
@@ -69,7 +72,9 @@ class ProductController extends Controller
      */
     public function destroy(Product $product)
     {
-        $product->delete();
+        $product->update([
+            'is_active' => false
+        ]);
 
         return response()->json(null, 204);
     }
