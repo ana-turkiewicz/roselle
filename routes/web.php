@@ -24,11 +24,19 @@ Route::get('/products/{product}', [ProductPageController::class, 'show']);
 Route::get('/products/{product}/edit', [ProductPageController::class, 'edit']);
 
 Route::get('/categories', [CategoryPageController::class, 'index'])->name('categories.index');
+Route::get('/categories/create', [CategoryPageController::class, 'create']);
+Route::get('/categories/{category}', [CategoryPageController::class, 'show']);
+Route::get('/categories/{category}/edit', [CategoryPageController::class, 'edit']);
+
+Route::get('/orders', [OrderPageController::class, 'index'])->name('orders.index');
+Route::get('/orders/{order}', [OrderPageController::class, 'show']);
+Route::get('/orders/{order}/edit', [OrderPageController::class, 'edit']);
+
 Route::get('/addresses', [AddressPageController::class, 'index'])->name('addresses.index');
 Route::get('/users', [UserPageController::class, 'index'])->name('users.index');
 Route::get('/carts', [CartPageController::class, 'index'])->name('carts.index');
 Route::get('/cartItems', [CartItemPageController::class, 'index'])->name('cartItems.index');
-Route::get('/orders', [OrderPageController::class, 'index'])->name('orders.index');
+
 Route::get('/orderItems', [OrderItemPageController::class, 'index'])->name('orderItems.index');
 Route::get('/payments', [PaymentPageController::class, 'index'])->name('payments.index');
 
