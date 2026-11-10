@@ -10,51 +10,35 @@ use Illuminate\Http\Request;
 
 class AddressController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function index(Request $request)
     {
-
-    return Address::get();
-
+        return AddressResource::collection($request->user()->addresses()->get());
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(AddressRequest $request)
     {
-        $data = $request->validated();
+        $address = $request->user()->addresses()->create($request->validated());
 
-        $address = Address::create($data);
-        
-        $response = new AddressResource($address);
-
-        return response()->json($response, 201);
+        return response()->json(new AddressResource($address), 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Address $address)
+    public function update(AddressRequest $request, Address $address)
     {
-        //
+        abort_if($address->user_id !== $request->user()->id, 404, 'Endereço não encontrado.');
+
+        $address->update($request->validated());
+
+        return response()->json(new AddressResource($address), 200);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Address $address)
+    public function destroy(Request $request, Address $address)
     {
-        //
-    }
+        abort_if($address->user_id !== $request->user()->id, 404, 'Endereço não encontrado.');
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Address $address)
-    {
-        //
+        abort_if($address->order()->exists(), 409, 'Este endereço já foi usado em um pedido.');
+
+        $address->delete();
+
+        return response()->noContent();
     }
 }
