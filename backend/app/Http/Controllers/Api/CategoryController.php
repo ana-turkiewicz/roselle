@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\CategoryUpdateRequest;
 use App\Http\Requests\CategoryRequest;
-use App\Models\Category;
 use App\Http\Resources\CategoryResource;
+use App\Models\Category;
+use Illuminate\Support\Str;
 
 class CategoryController extends Controller
 {
@@ -15,7 +15,7 @@ class CategoryController extends Controller
      */
     public function index()
     {
-        return Category::get();
+        return CategoryResource::collection(Category::orderBy('name')->get());
     }
 
     /**
@@ -24,10 +24,11 @@ class CategoryController extends Controller
     public function store(CategoryRequest $request)
     {
         $data = $request->validated();
+        $data['slug'] = Str::slug($data['name']);
 
         $category = Category::create($data);
 
-        return response()->json($category, 201);
+        return response()->json(new CategoryResource($category), 201);
     }
 
     /**
@@ -35,24 +36,20 @@ class CategoryController extends Controller
      */
     public function show(Category $category)
     {
-        $response = new CategoryResource($category);
-
-        return response()->json($response, 200);
+        return response()->json(new CategoryResource($category), 200);
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(CategoryUpdateRequest $request, Category $category)
+    public function update(CategoryRequest $request, Category $category)
     {
-
         $data = $request->validated();
+        $data['slug'] = Str::slug($data['name']);
 
         $category->update($data);
 
-        $response = new CategoryResource($category);
-
-        return response()->json($response, 200);
+        return response()->json(new CategoryResource($category), 200);
     }
 
     /**
@@ -60,11 +57,7 @@ class CategoryController extends Controller
      */
     public function destroy(Category $category)
     {
-        if ($category->products()->exists()) {
-            return response()->json([
-                'message' => 'Não é possível excluir uma categoria que possui produtos vinculados.'
-            ], 409);
-        }
+        abort_if($category->products()->exists(), 409, 'Não é possível excluir uma categoria que possui produtos vinculados.');
 
         $category->delete();
 

@@ -4,69 +4,76 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\OrderRequest;
-use App\Models\Order;
 use App\Http\Resources\OrderResource;
-use App\Http\Requests\OrderUpdateRequest;
+use App\Models\Order;
+use App\Services\OrderService;
+use Illuminate\Http\Request;
 
 class OrderController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
-    {
-        $orders = Order::with(['user', 'items'])->get();
-        $response = OrderResource::collection($orders);
 
-        return response()->json($response, 200);
+    public function index(Request $request)
+    {
+        $query = Order::with('user')->latest('id');
+
+        if ($request->is('api/admin/*')) {
+            $query->when($request->filled('status'), fn ($q) => $q->where('status', $request->status));
+        } else {
+            $query->where('user_id', $request->user()->id);
+        }
+
+        return OrderResource::collection($query->paginate(10)->withQueryString());
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(OrderRequest $request)
+    public function store(OrderRequest $request, OrderService $orderService)
     {
-        $data = $request->validated();
+        $order = $orderService->create($request->user(), $request->validated());
 
-        $order = Order::create($data);
-        $response = new OrderResource($order->load(['user', 'items']));
-
-        return response()->json($response, 201);
+        return response()->json(new OrderResource($order->load(['address', 'items'])), 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Order $order)
+    public function show(Request $request, Order $order)
     {
-        $response = new OrderResource($order->load(['user', 'items']));
+        $this->authorizeOrder($request, $order);
 
-        return response()->json($response, 200);
+        return response()->json(new OrderResource($order->load(['user', 'address', 'items', 'payment'])), 200);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(OrderUpdateRequest $request, Order $order)
+    public function pay(Request $request, Order $order, OrderService $orderService)
     {
-        $data = $request->validated();
+        abort_if($order->user_id !== $request->user()->id, 403, 'Este pedido não pertence a você.');
 
-        $order->update($data);
+        $order = $orderService->pay($order);
 
-        $response = new OrderResource($order->load(['user', 'items']));
-
-        return response()->json($response, 200);
+        return response()->json(new OrderResource($order->load(['user', 'address', 'items', 'payment'])), 200);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Order $order)
+    public function updateStatus(Request $request, Order $order, OrderService $orderService)
     {
-        $order->update([
-            'status' => 'cancelled'
+        $data = $request->validate([
+            'status' => ['required', 'in:shipped,delivered'],
         ]);
 
-        return response()->json(null, 204);
+        $order = $orderService->advance($order, $data['status']);
+
+        return response()->json(new OrderResource($order->load(['user', 'address', 'items', 'payment'])), 200);
+    }
+
+    public function cancel(Request $request, Order $order, OrderService $orderService)
+    {
+        $this->authorizeOrder($request, $order);
+
+        $order = $orderService->cancel($order);
+
+        return response()->json(new OrderResource($order->load(['user', 'address', 'items', 'payment'])), 200);
+    }
+
+    private function authorizeOrder(Request $request, Order $order): void
+    {
+        abort_if(
+            $order->user_id !== $request->user()->id && ! $request->user()->can('admin'),
+            403,
+            'Este pedido não pertence a você.'
+        );
     }
 }
