@@ -4,17 +4,26 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CartItemRequest;
+use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CartItemController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return CartItem::get();
+        return response()->json(
+            $request->user()
+            
+                ->carts()
+                ->with('cartItems.product')
+                ->get()
+        );
     }
 
     /**
@@ -24,9 +33,42 @@ class CartItemController extends Controller
     {
         $data = $request->validated();
 
-        $cartItem = CartItem::create($data);
+        $result = DB::transaction(function () use ($data, $request) {
 
-        return response()->json($cartItem, 201);
+            $product = Product::where('is_active', true)
+                ->lockForUpdate()
+                ->findOrFail($data['product_id']);
+
+            $cart = Cart::firstOrCreate([
+                'user_id' => $request->user()->id,
+                'status' => 'active',
+            ]);
+
+            $cartItem = $cart->cartItems()
+                ->where('product_id', $product->id)
+                ->first();
+
+            $quantity = ($cartItem?->quantity ?? 0) + $data['quantity'];
+
+            if ($quantity > $product->stock) {
+                abort(422, 'Quantidade solicitada maior que o estoque disponível.');
+            }
+
+            if ($cartItem) {
+                $cartItem->update([
+                    'quantity' => $quantity,
+                ]);
+            } else {
+                $cartItem = $cart->cartItems()->create([
+                    'product_id' => $product->id,
+                    'quantity' => $quantity,
+                ]);
+            }
+
+            return $cartItem->load('product');
+        });
+
+        return response()->json($result, 200);
     }
 
     /**
