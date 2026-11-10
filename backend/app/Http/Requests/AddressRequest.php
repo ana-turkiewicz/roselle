@@ -24,13 +24,13 @@ class AddressRequest extends FormRequest
     {
         return [
             'recipient_name' => ['required', 'string', 'max:255'],
-            'zip_code' => ['required', 'string', 'max:20'],
+            'zip_code' => ['required', 'string', 'max:9'],
             'street' => ['required', 'string', 'max:255'],
             'number' => ['required', 'string', 'max:20'],
             'complement' => ['nullable', 'string', 'max:255'],
             'neighborhood' => ['required', 'string', 'max:255'],
             'city' => ['required', 'string', 'max:255'],
-            'state' => ['required', 'string', 'max:255'],
+            'state' => ['required', 'string', 'size:2'],
             'user_id' => ['required', 'exists:users,id'],
         ];
     }
