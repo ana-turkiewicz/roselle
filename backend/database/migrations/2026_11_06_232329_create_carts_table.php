@@ -15,10 +15,12 @@ return new class extends Migration
             $table->id();
 
             $table->foreignId('user_id')
+                ->nullable()
+                ->unique()
                 ->constrained('users')
                 ->cascadeOnDelete();
 
-            $table->string('status')->default('active');
+            $table->string('session_token', 64)->nullable()->unique();
 
             $table->timestamps();
         });
