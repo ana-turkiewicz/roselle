@@ -4,21 +4,39 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ProductRequest;
+use App\Http\Requests\ProductUpdateRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
-use App\Http\Requests\ProductUpdateRequest;
+use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $products = Product::with('category')->get();
-        $response = ProductResource::collection($products);
+        $query = Product::with('category');
 
-        return response()->json($response, 200);
+        if (! $request->is('api/admin/*')) {
+            $query->where('is_active', true);
+        }
+
+        if ($request->filled('q')) {
+            $query->where('name', 'like', '%'.$request->q.'%');
+        }
+
+        if ($request->filled('category_id')) {
+            $query->where('category_id', $request->category_id);
+        }
+
+        match ($request->sort) {
+            'price_asc' => $query->orderBy('price'),
+            'price_desc' => $query->orderByDesc('price'),
+            default => $query->orderByDesc('id'),
+        };
+
+        return ProductResource::collection($query->paginate(12)->withQueryString());
     }
 
     /**
@@ -41,8 +59,10 @@ class ProductController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Product $product)
+    public function show(Request $request, Product $product)
     {
+        abort_if(! $product->is_active && ! $request->is('api/admin/*'), 404, 'Produto não encontrado.');
+
         $response = new ProductResource($product->load('category'));
 
         return response()->json($response, 200);
