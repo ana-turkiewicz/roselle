@@ -22,6 +22,7 @@ return new class extends Migration
                 ->constrained('products')
                 ->restrictOnDelete();
 
+            $table->string('product_name');
             $table->unsignedInteger('quantity');
             $table->decimal('unit_price', 10, 2);
 

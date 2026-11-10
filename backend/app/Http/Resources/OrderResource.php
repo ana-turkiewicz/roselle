@@ -7,26 +7,26 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class OrderResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(Request $request): array
     {
         return [
             'id' => $this->id,
             'status' => $this->status,
             'total' => $this->total,
+            'shipping' => $this->shipping,
             'notes' => $this->notes,
             'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
-            'user_id' => $this->whenLoaded('user', function () {
-                return new UserResource($this->user);
-            }),
-            'address_id' => $this->whenLoaded('address', function () {
-                return new AddressResource($this->address);
-            }),
+            'paid_at' => $this->whenLoaded('payment', fn () => $this->payment?->paid_at),
+            'user' => $this->whenLoaded('user', fn () => new UserResource($this->user)),
+            'address' => $this->whenLoaded('address', fn () => new AddressResource($this->address)),
+            'items' => $this->whenLoaded('items', fn () => $this->items->map(fn ($item) => [
+                'id' => $item->id,
+                'product_id' => $item->product_id,
+                'name' => $item->product_name,
+                'quantity' => $item->quantity,
+                'unit_price' => $item->unit_price,
+                'subtotal' => number_format($item->unit_price * $item->quantity, 2, '.', ''),
+            ])),
         ];
     }
 }

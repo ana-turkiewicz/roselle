@@ -19,12 +19,12 @@ return new class extends Migration
                 ->restrictOnDelete();
 
             $table->foreignId('address_id')
-                ->nullable()
                 ->constrained('addresses')
-                ->nullOnDelete();
+                ->restrictOnDelete();
 
             $table->string('status')->default('pending');
             $table->decimal('total', 10, 2);
+            $table->decimal('shipping', 10, 2)->default(0);
             $table->text('notes')->nullable();
 
             $table->timestamps();

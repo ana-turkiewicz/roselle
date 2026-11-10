@@ -12,11 +12,16 @@ class Order extends Model
     protected $fillable = [
         'status',
         'total',
+        'shipping',
         'notes',
         'user_id',
         'address_id',
     ];
 
+    protected $casts = [
+        'total' => 'decimal:2',
+        'shipping' => 'decimal:2',
+    ];
 
     public function user()
     {
@@ -26,6 +31,11 @@ class Order extends Model
     public function address()
     {
         return $this->belongsTo(Address::class);
+    }
+
+    public function payment()
+    {
+        return $this->hasOne(Payment::class);
     }
 
     public function items()
