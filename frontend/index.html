@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roselle - Catálogo</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+  <main>
+    <h1>Catálogo</h1>
+    <div id="msg" class="msg" hidden></div>
+    <form id="filters" class="row">
+      <input name="q" placeholder="Buscar por nome">
+      <select name="category_id"><option value="">Todas as categorias</option></select>
+      <select name="sort">
+        <option value="">Mais recentes</option>
+        <option value="price_asc">Menor preço</option>
+        <option value="price_desc">Maior preço</option>
+      </select>
+      <button>Filtrar</button>
+    </form>
+    <div id="list" class="grid"></div>
+    <div id="pager" class="pager"></div>
+  </main>
+  <script type="module" src="js/index.js"></script>
+</body>
+</html>
