@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Roselle API · Documentação</title>
+    <!-- Caminhos absolutos: a página é servida tanto em /api/docs quanto em /api/docs/. -->
+    <link rel="stylesheet" href="/api/docs/assets/swagger-ui.css">
+    <link rel="icon" type="image/png" sizes="32x32" href="/api/docs/assets/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/api/docs/assets/favicon-16x16.png">
+    <style>
+        html {
+            box-sizing: border-box;
+            overflow-y: scroll;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: inherit;
+        }
+
+        body {
+            margin: 0;
+            background: #fafafa;
+        }
+
+        .docs-noscript {
+            margin: 2rem;
+            font-family: sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <noscript>
+        <p class="docs-noscript">
+            Esta página precisa de JavaScript. A especificação está em
+            <a href="/api/docs/openapi.yaml">/api/docs/openapi.yaml</a>.
+        </p>
+    </noscript>
+    <script src="/api/docs/assets/swagger-ui-bundle.js" charset="UTF-8"></script>
+    <script src="/api/docs/assets/swagger-initializer.js" charset="UTF-8"></script>
+</body>
+</html>
