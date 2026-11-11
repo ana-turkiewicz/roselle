@@ -1,0 +1,2116 @@
+openapi: 3.0.3
+
+info:
+  title: Roselle API
+  version: 1.0.0
+  description: |
+    API da loja Roselle (Laravel + Sanctum). Este documento descreve as rotas de `routes/api.php` e a rota
+    `/sanctum/csrf-cookie`, usada no fluxo de autenticação. O número em `version` identifica este documento;
+    a API não é versionada na URL.
+
+    ## Caminhos
+    Todas as rotas da API ficam sob `/api`. Os `paths` abaixo já trazem esse prefixo e o `server` é a raiz do
+    mesmo host que serve esta página. O proxy do frontend encaminha `/api/`, `/sanctum/` e `/storage/` para a
+    API, preservando o caminho.
+
+    ## Autenticação: sessão por cookie (Sanctum stateful)
+    A API **não emite tokens Bearer nem API keys**: o model `User` não usa `HasApiTokens` e nenhuma rota cria
+    tokens. A identidade vem da sessão do guard `web`.
+
+    1. `GET /sanctum/csrf-cookie` define os cookies `XSRF-TOKEN` e `laravel-session`.
+    2. `POST /api/auth/login` (ou `POST /api/auth/register`) autentica a sessão.
+    3. As próximas requisições enviam os cookies. Em `POST`, `PUT`, `PATCH` e `DELETE`, envie também o cabeçalho
+       `X-XSRF-TOKEN` com o valor do cookie `XSRF-TOKEN` (decodificado de URL).
+    4. `POST /api/auth/logout` encerra a sessão.
+
+    A sessão só é usada em requisições *stateful*: aquelas cujo cabeçalho `Origin` ou `Referer` aponta para um
+    host listado em `SANCTUM_STATEFUL_DOMAINS` (no Compose: `localhost:5173`, `127.0.0.1:5173` e
+    `localhost:8000`). Fora disso não há sessão nem verificação CSRF: as rotas públicas de catálogo e carrinho
+    funcionam, as rotas protegidas respondem `401` e login/registro respondem `500`.
+
+    Em requisições stateful de escrita sem prova de origem válida a resposta é `419` (`CSRF token mismatch.`).
+    O middleware do Laravel 13 (`PreventRequestForgery`) aceita o cabeçalho `X-XSRF-TOKEN` ou, como alternativa,
+    `Sec-Fetch-Site: same-origin`, que os navegadores enviam por conta própria.
+
+    ## "Try it out" nesta página
+    As chamadas vão para o mesmo host, com os cookies do navegador. A página busca `/sanctum/csrf-cookie`
+    quando ainda não há cookie `XSRF-TOKEN` e envia `X-XSRF-TOKEN` em toda operação de escrita. Para usar as
+    rotas protegidas, execute `POST /api/auth/login` aqui mesmo; não há valor a informar em um diálogo de
+    autorização, porque o cookie de sessão é `HttpOnly` e definido pelo servidor. Os usuários de
+    desenvolvimento são criados por `database/seeders/DatabaseSeeder.php`. As chamadas são reais e alteram o
+    banco deste ambiente.
+
+    ## Níveis de acesso
+    | Nível | Mecanismo no código | Sem permissão |
+    |---|---|---|
+    | Público | nenhum middleware de autenticação | — |
+    | Autenticado | middleware `auth:sanctum` | `401` |
+    | Admin | `auth:sanctum` + `can:admin`, que consulta o Gate `admin` (`$user->role === 'admin'`, em `AppServiceProvider`) | `401` sem sessão, `403` sem a role |
+
+    Além disso, os controllers verificam a posse do recurso: endereço de outro usuário responde `404`; pedido
+    de outro usuário responde `403` (um admin pode consultar e cancelar qualquer pedido, mas só o dono paga);
+    item de um carrinho que não é o do chamador responde `404`. Não há Policies; todos os Form Requests
+    autorizam (`authorize()` retorna `true`).
+
+    ## Formatos de resposta
+    - **Item único:** o objeto vem direto no corpo, sem envelope (`response()->json(new XResource(...))`).
+    - **Listas:** vêm no envelope `data`. Produtos (12 por página) e pedidos (10 por página) são paginados e
+      trazem também `links` e `meta`. Categorias e endereços não são paginados.
+    - **Carrinho:** objeto próprio, montado por `CartService::summary`, sem Resource.
+    - **Dinheiro:** strings com duas casas decimais, como `"39.90"`.
+    - **Datas:** ISO 8601 em UTC com microssegundos (`2026-11-11T01:32:02.000000Z`), exceto `paid_at`.
+    - **Erros:** `{"message": "..."}`. Erros de validação (`422`) acrescentam `errors`. Com `APP_DEBUG=true`
+      os erros HTTP também trazem `exception`, `file`, `line` e `trace`. As mensagens de validação estão em
+      inglês (locale `en`); as de regra de negócio, em português.
+
+servers:
+  - url: /
+    description: Mesmo host desta página. Os caminhos já incluem o prefixo `/api`.
+
+tags:
+  - name: Autenticação
+    description: Cookie CSRF, registro, login e logout por sessão.
+  - name: Usuário
+    description: Dados do usuário autenticado.
+  - name: Produtos
+    description: Catálogo público. Só expõe produtos ativos.
+  - name: Categorias
+    description: Leitura pública das categorias.
+  - name: Carrinho
+    description: Carrinho do visitante (identificado por `X-Cart-Session`) ou do usuário autenticado.
+  - name: Endereços
+    description: Endereços de entrega do usuário autenticado.
+  - name: Pedidos
+    description: Pedidos do usuário autenticado.
+  - name: Admin · Produtos
+    description: Gestão de produtos. Exige `role = admin`.
+  - name: Admin · Categorias
+    description: Gestão de categorias. Exige `role = admin`.
+  - name: Admin · Pedidos
+    description: Consulta e mudança de status de todos os pedidos. Exige `role = admin`.
+
+paths:
+  /sanctum/csrf-cookie:
+    get:
+      tags: [Autenticação]
+      operationId: getCsrfCookie
+      summary: Obter o cookie CSRF e iniciar a sessão
+      description: |
+        **Acesso:** público.
+
+        Rota registrada pelo Laravel Sanctum, fora do prefixo `/api`. Inicia a sessão e devolve o token CSRF
+        no cookie `XSRF-TOKEN`. Toda resposta stateful da API também renova esse cookie.
+      security: []
+      responses:
+        '204':
+          description: Sem corpo. Define `XSRF-TOKEN` (legível por JavaScript) e `laravel-session` (`HttpOnly`).
+          headers:
+            Set-Cookie:
+              description: Cookies `XSRF-TOKEN` e `laravel-session`, ambos com `SameSite=Lax` e `Path=/`.
+              schema:
+                type: string
+
+  /api/auth/register:
+    post:
+      tags: [Autenticação]
+      operationId: register
+      summary: Criar conta e iniciar sessão
+      description: |
+        **Acesso:** público.
+
+        Cria o usuário (a coluna `role` assume o padrão `customer`), autentica a sessão e regenera o ID da
+        sessão. Se `cart_session` identificar um carrinho de visitante, ele é mesclado ao carrinho do usuário,
+        como no login.
+
+        Na resposta, `user.role` e `user.email_verified_at` vêm `null`, porque o model não é recarregado após a
+        criação. `GET /api/user` devolve `role` preenchido.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterInput'
+      responses:
+        '201':
+          description: Conta criada e sessão autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResult'
+              example:
+                user:
+                  id: 5
+                  name: Carla Souza
+                  email: carla@example.com
+                  role: null
+                  email_verified_at: null
+                  created_at: '2026-11-11T03:54:04.000000Z'
+                  updated_at: '2026-11-11T03:54:04.000000Z'
+                cart_adjusted: false
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/auth/login:
+    post:
+      tags: [Autenticação]
+      operationId: login
+      summary: Iniciar sessão
+      description: |
+        **Acesso:** público.
+
+        Valida as credenciais no guard `web` e regenera o ID da sessão. Se `cart_session` identificar um
+        carrinho de visitante, seus itens são somados ao carrinho do usuário, limitados ao estoque de cada
+        produto, e o carrinho de visitante é excluído. `cart_adjusted` indica se alguma quantidade foi reduzida
+        por falta de estoque.
+
+        Credenciais inválidas respondem `422` no formato de validação, com a mensagem no campo `email`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginInput'
+      responses:
+        '200':
+          description: Sessão autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResult'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          description: Dados inválidos ou credenciais incorretas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              example:
+                message: E-mail ou senha inválidos.
+                errors:
+                  email: [E-mail ou senha inválidos.]
+        '500':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/auth/logout:
+    post:
+      tags: [Autenticação]
+      operationId: logout
+      summary: Encerrar a sessão
+      description: |
+        **Acesso:** autenticado.
+
+        Faz logout no guard `web`, invalida a sessão e gera um novo token CSRF.
+      security:
+        - sessionCookie: []
+      responses:
+        '204':
+          description: Sessão encerrada. Sem corpo.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+
+  /api/user:
+    get:
+      tags: [Usuário]
+      operationId: getCurrentUser
+      summary: Usuário autenticado
+      description: '**Acesso:** autenticado.'
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Usuário da sessão, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    put:
+      tags: [Usuário]
+      operationId: updateCurrentUser
+      summary: Atualizar nome e e-mail
+      description: |
+        **Acesso:** autenticado.
+
+        Atualiza apenas `name` e `email` do próprio usuário. A rota aceita somente `PUT`.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateInput'
+      responses:
+        '200':
+          description: Usuário atualizado, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/products:
+    get:
+      tags: [Produtos]
+      operationId: listProducts
+      summary: Listar produtos ativos
+      description: |
+        **Acesso:** público.
+
+        Lista paginada (12 por página) dos produtos com `is_active = true`, com a categoria de cada um.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProductSearch'
+        - $ref: '#/components/parameters/ProductCategoryFilter'
+        - $ref: '#/components/parameters/ProductSort'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: Página de produtos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPage'
+
+  /api/products/{product}:
+    get:
+      tags: [Produtos]
+      operationId: getProduct
+      summary: Detalhar um produto ativo
+      description: |
+        **Acesso:** público.
+
+        Produto inativo responde `404` com a mensagem `Produto não encontrado.`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Produto, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/categories:
+    get:
+      tags: [Categorias]
+      operationId: listCategories
+      summary: Listar categorias
+      description: |
+        **Acesso:** público.
+
+        Todas as categorias, ordenadas por nome. Sem paginação.
+      security: []
+      responses:
+        '200':
+          description: Categorias no envelope `data`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryList'
+
+  /api/categories/{category}:
+    get:
+      tags: [Categorias]
+      operationId: getCategory
+      summary: Detalhar uma categoria
+      description: '**Acesso:** público.'
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      responses:
+        '200':
+          description: Categoria, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/cart:
+    get:
+      tags: [Carrinho]
+      operationId: getCart
+      summary: Consultar o carrinho
+      description: |
+        **Acesso:** público.
+
+        Com sessão autenticada, devolve o carrinho do usuário e ignora `X-Cart-Session`. Sem sessão, devolve o
+        carrinho de visitante identificado por `X-Cart-Session`. Quando não há carrinho, devolve um resumo
+        vazio (nunca `404`).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CartSession'
+      responses:
+        '200':
+          description: Resumo do carrinho.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+
+  /api/cart/items:
+    post:
+      tags: [Carrinho]
+      operationId: addCartItem
+      summary: Adicionar produto ao carrinho
+      description: |
+        **Acesso:** público.
+
+        Cria o carrinho se ainda não existir. Para visitantes, gera um token de 40 caracteres devolvido em
+        `session`; envie-o em `X-Cart-Session` nas próximas chamadas (sem o cabeçalho, cada chamada cria um
+        carrinho novo). Se o produto já estiver no carrinho, a quantidade é somada.
+
+        Erros de regra de negócio: produto inativo responde `404`; produto sem estoque ou quantidade total
+        acima do estoque respondem `422` apenas com `message`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CartSession'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemInput'
+      responses:
+        '201':
+          description: Resumo do carrinho após a inclusão.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '404':
+          description: O produto existe, mas está inativo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: 'No query results for model [App\Models\Product] 30'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          description: |
+            Validação (`message` + `errors`) ou regra de estoque (`message` apenas): `Produto sem estoque.` ou
+            `Quantidade maior que o estoque disponível.`.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/ValidationError'
+                  - $ref: '#/components/schemas/Error'
+              examples:
+                validacao:
+                  summary: Produto inexistente
+                  value:
+                    message: The selected product id is invalid.
+                    errors:
+                      product_id: [The selected product id is invalid.]
+                estoque:
+                  summary: Quantidade acima do estoque
+                  value:
+                    message: Quantidade maior que o estoque disponível.
+
+  /api/cart/items/{cartItem}:
+    patch:
+      tags: [Carrinho]
+      operationId: updateCartItem
+      summary: Alterar a quantidade de um item
+      description: |
+        **Acesso:** público.
+
+        O item precisa pertencer ao carrinho do chamador (usuário autenticado ou `X-Cart-Session`); caso
+        contrário responde `404` com `Item não encontrado.`. `quantity = 0` remove o item.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CartItemId'
+        - $ref: '#/components/parameters/CartSession'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemUpdateInput'
+      responses:
+        '200':
+          description: Resumo do carrinho após a alteração.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '404':
+          $ref: '#/components/responses/CartItemNotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          description: Validação (`message` + `errors`) ou `Quantidade maior que o estoque disponível.` (`message` apenas).
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/ValidationError'
+                  - $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Carrinho]
+      operationId: removeCartItem
+      summary: Remover um item do carrinho
+      description: |
+        **Acesso:** público.
+
+        Mesma regra de posse do `PATCH`. Responde `200` com o resumo do carrinho, não `204`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CartItemId'
+        - $ref: '#/components/parameters/CartSession'
+      responses:
+        '200':
+          description: Resumo do carrinho após a remoção.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '404':
+          $ref: '#/components/responses/CartItemNotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+
+  /api/addresses:
+    get:
+      tags: [Endereços]
+      operationId: listAddresses
+      summary: Listar meus endereços
+      description: |
+        **Acesso:** autenticado.
+
+        Apenas os endereços do usuário da sessão. Sem paginação.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Endereços no envelope `data`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddressList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [Endereços]
+      operationId: createAddress
+      summary: Cadastrar endereço
+      description: '**Acesso:** autenticado. O endereço é criado para o usuário da sessão.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        $ref: '#/components/requestBodies/Address'
+      responses:
+        '201':
+          description: Endereço criado, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/addresses/{address}:
+    put:
+      tags: [Endereços]
+      operationId: updateAddress
+      summary: Atualizar endereço
+      description: |
+        **Acesso:** autenticado, somente o dono.
+
+        Endereço de outro usuário responde `404` com `Endereço não encontrado.`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AddressId'
+      requestBody:
+        $ref: '#/components/requestBodies/Address'
+      responses:
+        '200':
+          $ref: '#/components/responses/AddressUpdated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/AddressNotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Endereços]
+      operationId: patchAddress
+      summary: Atualizar endereço (PATCH)
+      description: |
+        **Acesso:** autenticado, somente o dono.
+
+        Mesmo handler e mesmas regras do `PUT`: os campos obrigatórios continuam obrigatórios, então um corpo
+        parcial responde `422`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AddressId'
+      requestBody:
+        $ref: '#/components/requestBodies/Address'
+      responses:
+        '200':
+          $ref: '#/components/responses/AddressUpdated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/AddressNotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Endereços]
+      operationId: deleteAddress
+      summary: Excluir endereço
+      description: |
+        **Acesso:** autenticado, somente o dono.
+
+        Um endereço já usado em algum pedido não pode ser excluído (`409`).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AddressId'
+      responses:
+        '204':
+          description: Endereço excluído. Sem corpo.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/AddressNotFound'
+        '409':
+          description: O endereço já foi usado em um pedido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Este endereço já foi usado em um pedido.
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+
+  /api/orders:
+    get:
+      tags: [Pedidos]
+      operationId: listMyOrders
+      summary: Listar meus pedidos
+      description: |
+        **Acesso:** autenticado.
+
+        Lista paginada (10 por página) dos pedidos do usuário da sessão, do mais recente para o mais antigo.
+        Vale também para admins: esta rota só devolve os pedidos do próprio usuário. Cada item traz `user`,
+        mas não `address`, `items` nem `paid_at`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: Página de pedidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [Pedidos]
+      operationId: createOrder
+      summary: Fechar pedido a partir do carrinho
+      description: |
+        **Acesso:** autenticado.
+
+        Cria o pedido com os itens do carrinho do usuário, em uma transação:
+
+        - `address_id` precisa ser um endereço do próprio usuário;
+        - cada produto precisa estar ativo e ter estoque para a quantidade pedida;
+        - nome e preço do produto são copiados para o item do pedido e o estoque é baixado;
+        - frete de `15.00`, gratuito quando o subtotal é `200.00` ou mais;
+        - o carrinho é esvaziado.
+
+        O pedido é gravado com status `pending`, mas **nesta resposta `status` vem `null`**, porque o model não
+        é recarregado após a criação. A resposta traz `address` e `items`, sem `user` nem `paid_at`.
+
+        Carrinho vazio e falta de estoque respondem `422` apenas com `message`. A mensagem de carrinho vazio
+        está com a codificação corrompida no código-fonte e chega como `O carrinho estÃ¡ vazio.`.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderInput'
+      responses:
+        '201':
+          description: Pedido criado, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderCreated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          description: |
+            Validação (`message` + `errors`) ou regra de negócio (`message` apenas): carrinho vazio ou
+            `Estoque insuficiente para o produto: {nome}.`.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/ValidationError'
+                  - $ref: '#/components/schemas/Error'
+              examples:
+                endereco:
+                  summary: Endereço inexistente ou de outro usuário
+                  value:
+                    message: The selected address id is invalid.
+                    errors:
+                      address_id: [The selected address id is invalid.]
+                carrinhoVazio:
+                  summary: Carrinho vazio (texto como a API devolve hoje)
+                  value:
+                    message: O carrinho estÃ¡ vazio.
+
+  /api/orders/{order}:
+    get:
+      tags: [Pedidos]
+      operationId: getOrder
+      summary: Detalhar um pedido
+      description: |
+        **Acesso:** autenticado; dono do pedido ou admin.
+
+        Outro usuário sem a role `admin` recebe `403`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/OrderNotYours'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/orders/{order}/pay:
+    post:
+      tags: [Pedidos]
+      operationId: payOrder
+      summary: Pagar um pedido (pagamento simulado)
+      description: |
+        **Acesso:** autenticado; **somente o dono** do pedido. Um admin que não é o dono recebe `403`.
+
+        Não há corpo. O pedido precisa estar `pending`. Cria um pagamento com método `simulado`, status `paid`,
+        valor igual ao total e `paid_at` com a hora atual, e muda o pedido para `paid`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/OrderNotYours'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: O pedido não está `pending`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Este pedido não está aguardando pagamento.
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+
+  /api/orders/{order}/cancel:
+    post:
+      tags: [Pedidos]
+      operationId: cancelOrder
+      summary: Cancelar um pedido pendente
+      description: |
+        **Acesso:** autenticado; dono do pedido ou admin.
+
+        Não há corpo. Só pedidos `pending` podem ser cancelados por esta rota. O estoque dos itens é devolvido
+        e o pedido muda para `cancelled`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/OrderNotYours'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: O pedido não está `pending`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Só é possível cancelar pedidos aguardando pagamento.
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+
+  /api/admin/products:
+    get:
+      tags: [Admin · Produtos]
+      operationId: adminListProducts
+      summary: Listar todos os produtos
+      description: |
+        **Acesso:** admin.
+
+        Mesmo handler e mesmos filtros de `GET /api/products`, mas inclui os produtos inativos.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProductSearch'
+        - $ref: '#/components/parameters/ProductCategoryFilter'
+        - $ref: '#/components/parameters/ProductSort'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: Página de produtos, ativos e inativos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPage'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+    post:
+      tags: [Admin · Produtos]
+      operationId: adminCreateProduct
+      summary: Criar produto
+      description: |
+        **Acesso:** admin.
+
+        Aceita `multipart/form-data` (necessário para enviar `image`) ou `application/json`. A imagem é gravada
+        no disco `public`, em `products/`, e passa a ser servida em `/storage/products/...`.
+
+        Na resposta, `is_active` vem `null` quando o campo não é enviado (o banco grava `true`), e `stock`
+        repete o valor recebido, então vem como string quando enviado por formulário.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductCreateForm'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreateJson'
+      responses:
+        '201':
+          description: Produto criado, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/admin/products/{product}:
+    get:
+      tags: [Admin · Produtos]
+      operationId: adminGetProduct
+      summary: Detalhar um produto, ativo ou inativo
+      description: '**Acesso:** admin.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Produto, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Admin · Produtos]
+      operationId: adminUpdateProduct
+      summary: Atualizar produto
+      description: |
+        **Acesso:** admin.
+
+        Todos os campos são opcionais; só os enviados são alterados. Aceita `multipart/form-data` (para trocar
+        a imagem) ou `application/json`. O frontend envia o formulário como `POST` com `_method=PUT`, que o
+        Laravel trata como esta mesma rota.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        $ref: '#/components/requestBodies/ProductUpdate'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProductUpdated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Admin · Produtos]
+      operationId: adminPatchProduct
+      summary: Atualizar produto (PATCH)
+      description: '**Acesso:** admin. Mesmo handler e mesmas regras do `PUT`.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        $ref: '#/components/requestBodies/ProductUpdate'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProductUpdated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Admin · Produtos]
+      operationId: adminDeactivateProduct
+      summary: Desativar produto
+      description: |
+        **Acesso:** admin.
+
+        Não apaga o registro: apenas define `is_active = false`. O produto sai do catálogo público e continua
+        visível nas rotas de admin e nos pedidos antigos.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '204':
+          description: Produto desativado. Sem corpo.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+
+  /api/admin/categories:
+    post:
+      tags: [Admin · Categorias]
+      operationId: adminCreateCategory
+      summary: Criar categoria
+      description: |
+        **Acesso:** admin.
+
+        O `slug` é gerado a partir de `name` (`Str::slug`). A listagem e o detalhe de categorias são as rotas
+        públicas `GET /api/categories`; não existem equivalentes em `/api/admin`.
+      security:
+        - sessionCookie: []
+      requestBody:
+        $ref: '#/components/requestBodies/Category'
+      responses:
+        '201':
+          description: Categoria criada, sem envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/admin/categories/{category}:
+    put:
+      tags: [Admin · Categorias]
+      operationId: adminUpdateCategory
+      summary: Atualizar categoria
+      description: '**Acesso:** admin. O `slug` é gerado de novo a partir de `name`.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      requestBody:
+        $ref: '#/components/requestBodies/Category'
+      responses:
+        '200':
+          $ref: '#/components/responses/CategoryUpdated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Admin · Categorias]
+      operationId: adminPatchCategory
+      summary: Atualizar categoria (PATCH)
+      description: '**Acesso:** admin. Mesmo handler e mesmas regras do `PUT`; `name` continua obrigatório.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      requestBody:
+        $ref: '#/components/requestBodies/Category'
+      responses:
+        '200':
+          $ref: '#/components/responses/CategoryUpdated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Admin · Categorias]
+      operationId: adminDeleteCategory
+      summary: Excluir categoria
+      description: |
+        **Acesso:** admin.
+
+        Uma categoria com produtos vinculados não pode ser excluída (`409`).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      responses:
+        '204':
+          description: Categoria excluída. Sem corpo.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: A categoria possui produtos vinculados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Não é possível excluir uma categoria que possui produtos vinculados.
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+
+  /api/admin/orders:
+    get:
+      tags: [Admin · Pedidos]
+      operationId: adminListOrders
+      summary: Listar pedidos de todos os usuários
+      description: |
+        **Acesso:** admin.
+
+        Lista paginada (10 por página), do pedido mais recente para o mais antigo. Cada item traz `user`, mas
+        não `address`, `items` nem `paid_at`. O detalhe usa `GET /api/orders/{order}`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: status
+          in: query
+          description: |
+            Filtra pelo status exato. O valor não é validado: um status desconhecido devolve uma lista vazia.
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: Página de pedidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+
+  /api/admin/orders/{order}/status:
+    patch:
+      tags: [Admin · Pedidos]
+      operationId: adminUpdateOrderStatus
+      summary: Alterar o status de um pedido
+      description: |
+        **Acesso:** admin.
+
+        Aceita qualquer transição entre os status válidos. Efeitos sobre o estoque:
+
+        - mudar **para** `cancelled` devolve o estoque dos itens;
+        - mudar **de** `cancelled` para outro status volta a reservar o estoque e responde `409` se não houver
+          quantidade suficiente;
+        - enviar o status atual não altera nada.
+
+        Esta rota não cria nem altera pagamentos: definir `paid` por aqui não preenche `paid_at`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderStatusInput'
+      responses:
+        '200':
+          $ref: '#/components/responses/OrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Estoque insuficiente para reativar um pedido cancelado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: 'Estoque insuficiente para reativar o pedido: Batom Matte Rosé.'
+        '419':
+          $ref: '#/components/responses/CsrfMismatch'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: laravel-session
+      description: |
+        Cookie de sessão do Laravel (guard `web`), verificado pelo middleware `auth:sanctum`. É `HttpOnly` e
+        definido pelo servidor: obtenha-o com `GET /sanctum/csrf-cookie` e autentique a sessão com
+        `POST /api/auth/login`. O nome vem de `SESSION_COOKIE` ou, por padrão, de `APP_NAME`
+        (`Laravel` → `laravel-session`).
+
+  parameters:
+    ProductId:
+      name: product
+      in: path
+      required: true
+      description: ID do produto.
+      schema:
+        type: integer
+        example: 1
+    CategoryId:
+      name: category
+      in: path
+      required: true
+      description: ID da categoria.
+      schema:
+        type: integer
+        example: 1
+    CartItemId:
+      name: cartItem
+      in: path
+      required: true
+      description: ID do item do carrinho (campo `id` em `items`).
+      schema:
+        type: integer
+    AddressId:
+      name: address
+      in: path
+      required: true
+      description: ID do endereço.
+      schema:
+        type: integer
+    OrderId:
+      name: order
+      in: path
+      required: true
+      description: ID do pedido.
+      schema:
+        type: integer
+    Page:
+      name: page
+      in: query
+      description: Número da página, a partir de 1. Uma página além da última devolve `data` vazio.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    ProductSearch:
+      name: q
+      in: query
+      description: Trecho do nome do produto (`LIKE %q%`).
+      schema:
+        type: string
+    ProductCategoryFilter:
+      name: category_id
+      in: query
+      description: Filtra pela categoria. O valor não é validado.
+      schema:
+        type: integer
+    ProductSort:
+      name: sort
+      in: query
+      description: Ordenação por preço. Sem o parâmetro, ou com outro valor, ordena por `id` decrescente.
+      schema:
+        type: string
+        enum: [price_asc, price_desc]
+    CartSession:
+      name: X-Cart-Session
+      in: header
+      description: |
+        Token do carrinho de visitante, devolvido no campo `session` do carrinho. Ignorado quando há usuário
+        autenticado.
+      schema:
+        type: string
+
+  requestBodies:
+    Address:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AddressInput'
+    Category:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CategoryInput'
+    ProductUpdate:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '#/components/schemas/ProductUpdateForm'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProductUpdateJson'
+
+  responses:
+    Unauthenticated:
+      description: Sem sessão autenticada.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Unauthenticated.
+    AdminOnly:
+      description: O usuário autenticado não tem a role `admin` (Gate `admin`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: This action is unauthorized.
+    OrderNotYours:
+      description: O pedido pertence a outro usuário.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Este pedido não pertence a você.
+    NotFound:
+      description: Registro não encontrado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: 'No query results for model [App\Models\Product] 999999'
+    AddressNotFound:
+      description: Endereço inexistente ou de outro usuário (`Endereço não encontrado.`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Endereço não encontrado.
+    CartItemNotFound:
+      description: Item inexistente ou fora do carrinho do chamador (`Item não encontrado.`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Item não encontrado.
+    CsrfMismatch:
+      description: |
+        Requisição stateful de escrita sem `X-XSRF-TOKEN` válido (e sem `Sec-Fetch-Site: same-origin`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: CSRF token mismatch.
+    ValidationError:
+      description: Dados inválidos.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+    SessionUnavailable:
+      description: |
+        A requisição não é stateful (`Origin`/`Referer` fora de `SANCTUM_STATEFUL_DOMAINS`), então não há
+        sessão para autenticar.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Session store not set on request.
+    AddressUpdated:
+      description: Endereço atualizado, sem envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Address'
+    CategoryUpdated:
+      description: Categoria atualizada, sem envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Category'
+    ProductUpdated:
+      description: Produto atualizado, sem envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Product'
+    OrderDetail:
+      description: Pedido completo, sem envelope, com `user`, `address`, `items` e `paid_at`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OrderDetail'
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        exception:
+          type: string
+          description: Somente com `APP_DEBUG=true`.
+        file:
+          type: string
+          description: Somente com `APP_DEBUG=true`.
+        line:
+          type: integer
+          description: Somente com `APP_DEBUG=true`.
+        trace:
+          type: array
+          description: Somente com `APP_DEBUG=true`.
+          items:
+            type: object
+
+    ValidationError:
+      type: object
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+          description: Primeira mensagem de erro, seguida de `(and N more errors)` quando há outras.
+          example: The name field is required. (and 1 more error)
+        errors:
+          type: object
+          description: Mensagens por campo.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            name: [The name field is required.]
+            email: [The email field is required.]
+
+    User:
+      type: object
+      required: [id, name, email, role, email_verified_at, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          example: 2
+        name:
+          type: string
+          example: Maria
+        email:
+          type: string
+          format: email
+          example: maria@roselle.com
+        role:
+          type: string
+          nullable: true
+          description: |
+            `customer` (padrão da coluna) ou `admin`. Vem `null` apenas na resposta de
+            `POST /api/auth/register`.
+          example: customer
+        email_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-11-11T01:32:01.000000Z'
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+
+    AuthResult:
+      type: object
+      required: [user, cart_adjusted]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        cart_adjusted:
+          type: boolean
+          description: |
+            `true` quando o carrinho de visitante foi mesclado e alguma quantidade foi reduzida ao estoque
+            disponível. `false` nos demais casos, inclusive quando não havia carrinho para mesclar.
+          example: false
+
+    RegisterInput:
+      type: object
+      required: [name, email, password, password_confirmation]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: Carla Souza
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Precisa ser único na tabela `users`.
+          example: carla@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: senha-de-exemplo
+        password_confirmation:
+          type: string
+          format: password
+          description: Deve ser igual a `password`.
+          example: senha-de-exemplo
+        cart_session:
+          type: string
+          nullable: true
+          description: Token do carrinho de visitante a mesclar. Opcional e não validado.
+          example: null
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: maria@roselle.com
+        password:
+          type: string
+          format: password
+        cart_session:
+          type: string
+          nullable: true
+          description: Token do carrinho de visitante a mesclar. Opcional e não validado.
+          example: null
+
+    UserUpdateInput:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: Maria Silva
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Precisa ser único, desconsiderando o próprio usuário.
+          example: maria@roselle.com
+
+    Category:
+      type: object
+      required: [id, name, description, slug, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Maquiagem
+        description:
+          type: string
+          nullable: true
+          example: null
+        slug:
+          type: string
+          example: maquiagem
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+
+    CategoryList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+
+    CategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: Precisa ser único entre as categorias (desconsiderando a própria, na atualização).
+          example: Corpo e Banho
+        description:
+          type: string
+          nullable: true
+          example: Sabonetes e hidratantes
+
+    Product:
+      type: object
+      required: [id, name, description, price, stock, image, is_active, created_at, updated_at, category]
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Batom Matte Rosé
+        description:
+          type: string
+          nullable: true
+          example: Batom de longa duração com acabamento matte.
+        price:
+          type: string
+          description: Decimal com duas casas, como string.
+          example: '39.90'
+        stock:
+          type: integer
+          description: |
+            Inteiro nas leituras. Nas respostas de criação e atualização repete o valor recebido, então vem
+            como string numérica quando enviado por formulário.
+          example: 25
+        image:
+          type: string
+          nullable: true
+          description: Caminho do arquivo, servido estaticamente pelo mesmo host. `null` quando não há imagem.
+          example: /storage/products/batom-matte-rose.jpg
+        is_active:
+          type: boolean
+          nullable: true
+          description: |
+            Vem `null` apenas na resposta de criação quando o campo não foi enviado (o banco grava `true`).
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+        category:
+          $ref: '#/components/schemas/Category'
+
+    ProductPage:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    ProductCreateJson:
+      type: object
+      required: [name, price, stock, category_id]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: Sabonete Líquido
+        description:
+          type: string
+          nullable: true
+          example: Sabonete líquido de uso diário.
+        price:
+          type: number
+          minimum: 0
+          example: 24.9
+        stock:
+          type: integer
+          minimum: 0
+          example: 10
+        is_active:
+          type: boolean
+          description: Opcional. Sem o campo, o banco grava `true`.
+          example: true
+        category_id:
+          type: integer
+          description: ID de uma categoria existente.
+          example: 1
+
+    ProductCreateForm:
+      type: object
+      required: [name, price, stock, category_id]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: Sabonete Líquido
+        description:
+          type: string
+          example: Sabonete líquido de uso diário.
+        price:
+          type: number
+          minimum: 0
+          example: 24.9
+        stock:
+          type: integer
+          minimum: 0
+          example: 10
+        image:
+          type: string
+          format: binary
+          description: Imagem (regra `image` do Laravel) de até 2048 KB.
+        is_active:
+          type: string
+          enum: ['1', '0']
+          description: Em formulário, a regra `boolean` só aceita `1` ou `0`; `true`/`false` respondem `422`.
+        category_id:
+          type: integer
+          description: ID de uma categoria existente.
+          example: 1
+
+    ProductUpdateJson:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        price:
+          type: number
+          minimum: 0
+        stock:
+          type: integer
+          minimum: 0
+        is_active:
+          type: boolean
+        category_id:
+          type: integer
+          description: ID de uma categoria existente.
+      example:
+        price: 29.9
+        stock: 15
+
+    ProductUpdateForm:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        price:
+          type: number
+          minimum: 0
+        stock:
+          type: integer
+          minimum: 0
+        image:
+          type: string
+          format: binary
+          description: Imagem (regra `image` do Laravel) de até 2048 KB.
+        is_active:
+          type: string
+          enum: ['1', '0']
+          description: Em formulário, a regra `boolean` só aceita `1` ou `0`; `true`/`false` respondem `422`.
+        category_id:
+          type: integer
+          description: ID de uma categoria existente.
+
+    CartLine:
+      type: object
+      required: [id, product_id, name, image, price, quantity, subtotal, available]
+      properties:
+        id:
+          type: integer
+          description: ID do item do carrinho, usado em `/api/cart/items/{cartItem}`.
+          example: 2
+        product_id:
+          type: integer
+          example: 2
+        name:
+          type: string
+          example: Batom Matte Rosé Mini
+        image:
+          type: string
+          nullable: true
+          example: /storage/products/batom-matte-rose.jpg
+        price:
+          type: string
+          description: Preço unitário atual do produto.
+          example: '23.94'
+        quantity:
+          type: integer
+          example: 1
+        subtotal:
+          type: string
+          example: '23.94'
+        available:
+          type: boolean
+          description: '`true` quando o produto está ativo e tem estoque para a quantidade do item.'
+          example: true
+
+    Cart:
+      type: object
+      required: [session, items, count, subtotal, shipping, total]
+      properties:
+        session:
+          type: string
+          nullable: true
+          description: Token do carrinho de visitante. `null` no carrinho de usuário e quando não há carrinho.
+          example: null
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartLine'
+        count:
+          type: integer
+          description: Soma das quantidades.
+          example: 1
+        subtotal:
+          type: string
+          example: '23.94'
+        shipping:
+          type: string
+          description: '`15.00`; `0.00` quando o subtotal é `0.00` ou a partir de `200.00`.'
+          example: '15.00'
+        total:
+          type: string
+          example: '38.94'
+
+    CartItemInput:
+      type: object
+      required: [quantity, product_id]
+      properties:
+        product_id:
+          type: integer
+          description: ID de um produto existente.
+          example: 1
+        quantity:
+          type: integer
+          minimum: 1
+          example: 1
+
+    CartItemUpdateInput:
+      type: object
+      required: [quantity]
+      properties:
+        quantity:
+          type: integer
+          minimum: 0
+          description: '`0` remove o item.'
+          example: 2
+
+    Address:
+      type: object
+      description: |
+        O Resource também define `user_id` (com o usuário) quando a relação `user` está carregada, o que
+        nenhuma rota atual faz; por isso o campo não aparece nas respostas.
+      required:
+        [id, recipient_name, zip_code, street, number, complement, neighborhood, city, state, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          example: 1
+        recipient_name:
+          type: string
+          example: Maria
+        zip_code:
+          type: string
+          example: 01001-000
+        street:
+          type: string
+          example: Praça da Sé
+        number:
+          type: string
+          example: '100'
+        complement:
+          type: string
+          nullable: true
+          example: null
+        neighborhood:
+          type: string
+          example: Sé
+        city:
+          type: string
+          example: São Paulo
+        state:
+          type: string
+          example: SP
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+
+    AddressList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Address'
+
+    AddressInput:
+      type: object
+      required: [recipient_name, zip_code, street, number, neighborhood, city, state]
+      properties:
+        recipient_name:
+          type: string
+          maxLength: 255
+          example: Maria
+        zip_code:
+          type: string
+          maxLength: 9
+          example: 01310-100
+        street:
+          type: string
+          maxLength: 255
+          example: Av. Paulista
+        number:
+          type: string
+          maxLength: 20
+          example: '1000'
+        complement:
+          type: string
+          maxLength: 255
+          nullable: true
+          example: Apto 12
+        neighborhood:
+          type: string
+          maxLength: 255
+          example: Bela Vista
+        city:
+          type: string
+          maxLength: 255
+          example: São Paulo
+        state:
+          type: string
+          minLength: 2
+          maxLength: 2
+          example: SP
+
+    OrderStatus:
+      type: string
+      enum: [pending, paid, shipped, delivered, cancelled]
+
+    OrderItem:
+      type: object
+      required: [id, product_id, name, quantity, unit_price, subtotal]
+      properties:
+        id:
+          type: integer
+          example: 7
+        product_id:
+          type: integer
+          example: 8
+        name:
+          type: string
+          description: Nome do produto no momento da compra.
+          example: Paleta de Sombras Nude Mini
+        quantity:
+          type: integer
+          example: 1
+        unit_price:
+          type: string
+          description: Preço unitário no momento da compra.
+          example: '71.94'
+        subtotal:
+          type: string
+          example: '71.94'
+
+    OrderBase:
+      type: object
+      required: [id, status, total, shipping, notes, created_at]
+      properties:
+        id:
+          type: integer
+          example: 4
+        status:
+          type: string
+          nullable: true
+          enum: [pending, paid, shipped, delivered, cancelled, null]
+          description: Vem `null` apenas na resposta de `POST /api/orders`; o valor gravado é `pending`.
+          example: delivered
+        total:
+          type: string
+          description: Subtotal dos itens mais o frete.
+          example: '176.84'
+        shipping:
+          type: string
+          example: '15.00'
+        notes:
+          type: string
+          nullable: true
+          example: null
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-11-11T01:32:02.000000Z'
+
+    OrderListItem:
+      allOf:
+        - $ref: '#/components/schemas/OrderBase'
+        - type: object
+          required: [user]
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+
+    OrderCreated:
+      allOf:
+        - $ref: '#/components/schemas/OrderBase'
+        - type: object
+          required: [address, items]
+          properties:
+            address:
+              $ref: '#/components/schemas/Address'
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrderItem'
+
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrderBase'
+        - type: object
+          required: [paid_at, user, address, items]
+          properties:
+            paid_at:
+              type: string
+              nullable: true
+              description: |
+                Data do pagamento no formato `Y-m-d H:i:s`, em UTC (o campo não tem cast no model `Payment`).
+                `null` quando o pedido não tem pagamento.
+              example: '2026-11-11 01:32:02'
+            user:
+              $ref: '#/components/schemas/User'
+            address:
+              $ref: '#/components/schemas/Address'
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrderItem'
+
+    OrderPage:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderListItem'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    OrderInput:
+      type: object
+      required: [address_id]
+      properties:
+        address_id:
+          type: integer
+          description: ID de um endereço do próprio usuário.
+          example: 1
+        notes:
+          type: string
+          nullable: true
+          example: Deixar na portaria
+
+    OrderStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+
+    PaginationLinks:
+      type: object
+      description: |
+        URLs absolutas montadas com o host que a API recebe. Atrás do proxy do frontend elas apontam para
+        `http://api:8000/...`; para navegar, use o parâmetro `page` com `meta.current_page` e `meta.last_page`.
+      required: [first, last, prev, next]
+      properties:
+        first:
+          type: string
+          example: http://api:8000/api/products?page=1
+        last:
+          type: string
+          example: http://api:8000/api/products?page=3
+        prev:
+          type: string
+          nullable: true
+          example: null
+        next:
+          type: string
+          nullable: true
+          example: http://api:8000/api/products?page=2
+
+    PaginationMeta:
+      type: object
+      required: [current_page, from, last_page, links, path, per_page, to, total]
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        from:
+          type: integer
+          nullable: true
+          description: Posição do primeiro item da página. `null` quando a página está vazia.
+          example: 1
+        last_page:
+          type: integer
+          example: 3
+        links:
+          type: array
+          description: Itens de navegação gerados pelo paginador do Laravel.
+          items:
+            type: object
+            required: [url, label, page, active]
+            properties:
+              url:
+                type: string
+                nullable: true
+                example: http://api:8000/api/products?page=1
+              label:
+                type: string
+                example: '1'
+              page:
+                type: integer
+                nullable: true
+                example: 1
+              active:
+                type: boolean
+                example: true
+        path:
+          type: string
+          example: http://api:8000/api/products
+        per_page:
+          type: integer
+          example: 12
+        to:
+          type: integer
+          nullable: true
+          description: Posição do último item da página. `null` quando a página está vazia.
+          example: 12
+        total:
+          type: integer
+          example: 32
