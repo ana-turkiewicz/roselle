@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roselle - Checkout</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+  <main>
+    <h1>Checkout</h1>
+    <div id="msg" class="msg" hidden></div>
+    <div class="card">
+      <h2>Endereço de entrega</h2>
+      <select id="address"></select>
+      <form id="new-address">
+        <p class="muted">Ou cadastre um novo endereço:</p>
+        <div class="row">
+          <input name="recipient_name" placeholder="Destinatário" required>
+          <input name="zip_code" placeholder="CEP" maxlength="9" required>
+          <input name="street" placeholder="Rua" required>
+          <input name="number" placeholder="Número" required>
+          <input name="complement" placeholder="Complemento">
+          <input name="neighborhood" placeholder="Bairro" required>
+          <input name="city" placeholder="Cidade" required>
+          <input name="state" placeholder="UF" maxlength="2" required>
+          <button class="secondary">Salvar endereço</button>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Resumo do pedido</h2>
+      <div id="summary"></div>
+    </div>
+    <button id="confirm">Confirmar pedido</button>
+  </main>
+  <script type="module" src="js/checkout.js"></script>
+</body>
+</html>
