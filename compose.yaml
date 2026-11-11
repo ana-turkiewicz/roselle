@@ -4,46 +4,48 @@ services:
     container_name: roselle-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_DATABASE}
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-roselle}
+      MYSQL_DATABASE: ${DB_DATABASE:-roselle}
+      MYSQL_USER: ${DB_USERNAME:-roselle}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-roselle}
     ports:
       - "127.0.0.1:3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-psecret"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
       timeout: 5s
       retries: 20
 
-  back:
+  api:
     build:
-      context: .
-      dockerfile: Dockerfile.back.dev
+      context: ./backend
+      dockerfile: Dockerfile.dev
     environment:
       DB_HOST: mysql
+      SANCTUM_STATEFUL_DOMAINS: localhost:5173,127.0.0.1:5173,localhost:8000
+      DB_DATABASE: ${DB_DATABASE:-roselle}
+      DB_USERNAME: ${DB_USERNAME:-roselle}
+      DB_PASSWORD: ${DB_PASSWORD:-roselle}
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      - ./backend:/app
+      - uploads:/app/storage/app/public
     depends_on:
       mysql:
         condition: service_healthy
 
   front:
-    build:
-      context: .
-      dockerfile: Dockerfile.front
+    build: ./frontend
+    environment:
+      API_URL: http://api:8000
     ports:
-      - "5173:5173"
-    volumes:
-      - .:/app
-      - node_modules:/app/node_modules
+      - "5173:80"
     depends_on:
-      - back
+      - api
 
 volumes:
   mysql_data:
-  node_modules:
+  uploads:
