@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roselle - Perfil</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+  <main>
+    <h1>Perfil</h1>
+    <div id="msg" class="msg" hidden></div>
+    <form id="user" class="card">
+      <label>Nome</label><input name="name" required>
+      <label>E-mail</label><input type="email" name="email" required>
+      <p><button>Salvar dados</button></p>
+    </form>
+    <h2>Endereços</h2>
+    <div id="addresses"></div>
+    <form id="address" class="card">
+      <h3 id="address-title">Novo endereço</h3>
+      <div class="row">
+        <input name="recipient_name" placeholder="Destinatário" required>
+        <input name="zip_code" placeholder="CEP" maxlength="9" required>
+        <input name="street" placeholder="Rua" required>
+        <input name="number" placeholder="Número" required>
+        <input name="complement" placeholder="Complemento">
+        <input name="neighborhood" placeholder="Bairro" required>
+        <input name="city" placeholder="Cidade" required>
+        <input name="state" placeholder="UF" maxlength="2" required>
+      </div>
+      <button>Salvar endereço</button>
+    </form>
+  </main>
+  <script type="module" src="js/profile.js"></script>
+</body>
+</html>
