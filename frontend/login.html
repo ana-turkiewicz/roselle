@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roselle - Entrar</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header></header>
+  <main>
+    <div id="msg" class="msg" hidden></div>
+    <form id="login" class="card">
+      <h1>Entrar</h1>
+      <label>E-mail</label><input type="email" name="email" required>
+      <label>Senha</label><input type="password" name="password" required>
+      <p><button>Entrar</button></p>
+    </form>
+    <form id="register" class="card">
+      <h1>Criar conta</h1>
+      <label>Nome</label><input name="name" required>
+      <label>E-mail</label><input type="email" name="email" required>
+      <label>Senha (mínimo 8 caracteres)</label><input type="password" name="password" required>
+      <label>Confirmar senha</label><input type="password" name="password_confirmation" required>
+      <p><button>Cadastrar</button></p>
+    </form>
+  </main>
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>
