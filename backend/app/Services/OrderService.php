@@ -102,14 +102,38 @@ class OrderService
         });
     }
 
-    public function advance(Order $order, string $status): Order
+    public function setStatus(Order $order, string $status): Order
     {
-        $next = ['paid' => 'shipped', 'shipped' => 'delivered'];
+        return DB::transaction(function () use ($order, $status) {
+            $order = Order::lockForUpdate()->findOrFail($order->id);
 
-        abort_if(($next[$order->status] ?? null) !== $status, 409, 'Transição de status inválida.');
+            if ($order->status === $status) {
+                return $order;
+            }
 
-        $order->update(['status' => $status]);
+            // Cancelar devolve o estoque; reativar um pedido cancelado volta a reservá-lo.
+            if ($status === 'cancelled' || $order->status === 'cancelled') {
+                foreach ($order->items as $item) {
+                    $product = Product::lockForUpdate()->find($item->product_id);
 
-        return $order;
+                    if ($status === 'cancelled') {
+                        $product?->increment('stock', $item->quantity);
+                        continue;
+                    }
+
+                    abort_if(
+                        ! $product || $product->stock < $item->quantity,
+                        409,
+                        'Estoque insuficiente para reativar o pedido: '.$item->product_name.'.'
+                    );
+
+                    $product->decrement('stock', $item->quantity);
+                }
+            }
+
+            $order->update(['status' => $status]);
+
+            return $order;
+        });
     }
 }
