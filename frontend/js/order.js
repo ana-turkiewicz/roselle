@@ -24,12 +24,9 @@ function render(o) {
       <p>${esc(a.recipient_name)}<br>${esc(a.street)}, ${esc(a.number)} ${esc(a.complement)}<br>${esc(a.neighborhood)} - ${esc(a.city)}/${esc(a.state)} - ${esc(a.zip_code)}</p>
     </div>
     ${pending ? `
-      <p class="msg warn">Pagamento simulado para fins acadêmicos. Nenhum dado de cartão é solicitado.</p>
-      ${o.user.id === user.id ? '<button id="pay">Confirmar pagamento</button>' : ''}
       <button id="cancel" class="secondary">Cancelar pedido</button>` : ''}
     <p><a href="orders.html">Voltar aos pedidos</a></p>`;
 
-  $('#pay')?.addEventListener('click', () => act(`/orders/${o.id}/pay`, 'Pagamento confirmado.'));
   $('#cancel')?.addEventListener('click', () => act(`/orders/${o.id}/cancel`, 'Pedido cancelado e estoque devolvido.'));
 }
 

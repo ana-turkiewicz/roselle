@@ -51,10 +51,10 @@ class OrderController extends Controller
     public function updateStatus(Request $request, Order $order, OrderService $orderService)
     {
         $data = $request->validate([
-            'status' => ['required', 'in:shipped,delivered'],
+            'status' => ['required', 'in:pending,paid,shipped,delivered,cancelled'],
         ]);
 
-        $order = $orderService->advance($order, $data['status']);
+        $order = $orderService->setStatus($order, $data['status']);
 
         return response()->json(new OrderResource($order->load(['user', 'address', 'items', 'payment'])), 200);
     }

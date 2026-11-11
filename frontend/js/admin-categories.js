@@ -12,6 +12,7 @@ function reset() {
 
 async function load() {
   categories = (await api('/categories')).data;
+  document.dispatchEvent(new CustomEvent('categories:changed', { detail: categories }));
 
   $('#categories').innerHTML = `
     <table>

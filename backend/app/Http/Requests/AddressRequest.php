@@ -31,7 +31,6 @@ class AddressRequest extends FormRequest
             'neighborhood' => ['required', 'string', 'max:255'],
             'city' => ['required', 'string', 'max:255'],
             'state' => ['required', 'string', 'size:2'],
-            'user_id' => ['required', 'exists:users,id'],
         ];
     }
 }

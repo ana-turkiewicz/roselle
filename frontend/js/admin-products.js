@@ -7,8 +7,14 @@ let page = 1;
 let products = [];
 let editing = null;
 
-const categories = (await api('/categories')).data;
-form.category_id.innerHTML = categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+function fillCategories(categories) {
+  const selected = form.category_id.value;
+  form.category_id.innerHTML = categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if (selected) form.category_id.value = selected;
+}
+
+fillCategories((await api('/categories')).data);
+document.addEventListener('categories:changed', (e) => fillCategories(e.detail));
 
 function reset() {
   editing = null;

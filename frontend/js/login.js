@@ -19,7 +19,9 @@ function send(id, path) {
       }
 
       const next = qs('next');
-      location.href = next && /^[\w.-]+\.html(\?.*)?$/.test(next) ? next : 'index.html';
+      const allowed = next && /^[\w.-]+\.html(\?.*)?$/.test(next)
+        && !(next.startsWith('admin') && res.user?.role !== 'admin');
+      location.href = allowed ? next : 'index.html';
     } catch (err) {
       show(err.message);
     }
